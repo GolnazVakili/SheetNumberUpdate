@@ -6,9 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PlatformTarget>x64</PlatformTarget>
-    <UseWPF>true</UseWPF>
     <RootNamespace>SheetNumber</RootNamespace>
-    <AssemblyName>SheetNumber</AssemblyName>
+    <AssemblyName>SheetParameterUpdate</AssemblyName>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <LangVersion>latest</LangVersion>
@@ -26,19 +25,26 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="SheetNumber.addin">
+    <None Update="SheetParameterUpdate.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <Page Remove="UI\**" />
+    <Compile Remove="UI\**" />
+    <None Update="Condensed_Parameter.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
   <Target Name="InstallAddin" AfterTargets="Build">
     <PropertyGroup>
-      <AddinDir>$(AppData)\Autodesk\Revit\Addins\2025\SheetNumber</AddinDir>
+      <AddinDir>$(AppData)\Autodesk\Revit\Addins\2025\SheetParameterUpdate</AddinDir>
     </PropertyGroup>
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\2025\SheetNumber.addin" ContinueOnError="true" />
     <MakeDir Directories="$(AddinDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(AddinDir)" SkipUnchangedFiles="false" Retries="1" RetryDelayMilliseconds="300" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(AddinDir)" SkipUnchangedFiles="false" Retries="1" RetryDelayMilliseconds="300" ContinueOnError="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
-    <Copy SourceFiles="$(ProjectDir)SheetNumber.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2025" SkipUnchangedFiles="false" Retries="1" RetryDelayMilliseconds="300" ContinueOnError="true" />
+    <Copy SourceFiles="$(ProjectDir)SheetParameterUpdate.addin" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2025" SkipUnchangedFiles="false" Retries="1" RetryDelayMilliseconds="300" ContinueOnError="true" />
+    <Copy SourceFiles="$(ProjectDir)Condensed_Parameter.json" DestinationFolder="$(AddinDir)" SkipUnchangedFiles="false" Retries="1" RetryDelayMilliseconds="300" ContinueOnError="true" />
   </Target>
 
 </Project>

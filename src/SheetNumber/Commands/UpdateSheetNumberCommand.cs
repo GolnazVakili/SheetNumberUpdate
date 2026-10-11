@@ -1,11 +1,9 @@
-using System.Windows;
-using System.Windows.Interop;
+using System.IO;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using SheetNumber.Models;
 using SheetNumber.Services;
-using SheetNumber.UI;
 
 namespace SheetNumber.Commands;
 
@@ -13,6 +11,8 @@ namespace SheetNumber.Commands;
 [Regeneration(RegenerationOption.Manual)]
 public class UpdateSheetNumberCommand : IExternalCommand
 {
+    private const string Title = "Sheet Parameter Update";
+
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         try
@@ -21,38 +21,109 @@ public class UpdateSheetNumberCommand : IExternalCommand
             Document? doc = uiDocument?.Document;
             if (doc == null)
             {
-                TaskDialog.Show("Sheet Number", "Open a project first.");
+                TaskDialog.Show(Title, "Open a project first.");
                 return Result.Cancelled;
             }
 
             if (doc.IsFamilyDocument)
             {
-                TaskDialog.Show("Sheet Number", "Open a project document. This command does not run in the family editor.");
+                TaskDialog.Show(Title, "Open a project document. This command does not run in the family editor.");
                 return Result.Cancelled;
             }
 
-            SheetNumberCatalog catalog = SheetParameterService.Load(doc, uiDocument!.ActiveView as ViewSheet);
-            if (catalog.ParameterNames.Count == 0)
+            string mapPath = Path.Combine(Path.GetDirectoryName(App.AssemblyPath) ?? "", "Condensed_Parameter.json");
+            if (!File.Exists(mapPath))
             {
-                TaskDialog.Show("Sheet Number", "This project has no sheet parameters to choose from.");
+                TaskDialog.Show(Title, "Mapping file was not found:\n" + mapPath);
                 return Result.Cancelled;
             }
 
-            var window = new SheetNumberWindow(catalog);
-            new WindowInteropHelper(window).Owner = commandData.Application.MainWindowHandle;
-            if (window.ShowDialog() != true || window.Request == null)
+            Dictionary<string, string> valueMap = ValueMapFile.Read(mapPath);
+            SheetNumberCatalog catalog = SheetParameterService.Load(doc, uiDocument!.ActiveView as ViewSheet);
+            if (!TryBuildRequest(catalog, valueMap, out SheetNumberRequest? request, out string? error))
+            {
+                TaskDialog.Show(Title, error);
                 return Result.Cancelled;
+            }
 
-            SheetNumberApplyResult result = SheetParameterService.Apply(doc, window.Request);
-            TaskDialog.Show("Sheet Number", FormatSummary(window.Request, result));
+            SheetNumberApplyResult result = SheetParameterService.Apply(doc, request!);
+            TaskDialog.Show(Title, FormatSummary(request!, result));
             return result.ChangesCommitted ? Result.Succeeded : Result.Cancelled;
         }
         catch (Exception ex)
         {
             message = ex.Message;
-            TaskDialog.Show("Sheet Number", ex.Message);
+            TaskDialog.Show(Title, ex.Message);
             return Result.Failed;
         }
+    }
+
+    private static bool TryBuildRequest(
+        SheetNumberCatalog catalog,
+        IReadOnlyDictionary<string, string> valueMap,
+        out SheetNumberRequest? request,
+        out string error)
+    {
+        request = null;
+        IReadOnlyList<string> names = catalog.ParameterNames;
+        string? source = Find(names, name => name.Equals("Sheet Number", StringComparison.OrdinalIgnoreCase));
+        string? destination = Find(names, name => name.Equals("SheetNumber2", StringComparison.OrdinalIgnoreCase));
+        string? discipline = Find(names, name => IsDisciplineOriginator(name) && !IsSubDiscipline(name));
+        string? subDiscipline = Find(names, IsSubDiscipline);
+
+        var missing = new List<string>();
+        if (source == null)
+            missing.Add("Sheet Number");
+        if (destination == null)
+            missing.Add("SheetNumber2");
+        if (discipline == null)
+            missing.Add("Discipline Originator");
+        if (subDiscipline == null)
+            missing.Add("Sub-Discipline");
+
+        if (missing.Count > 0)
+        {
+            error = "This project is missing:\n" + string.Join(Environment.NewLine, missing.Select(name => "• " + name));
+            return false;
+        }
+
+        if (catalog.SheetCount == 0)
+        {
+            error = "This project has no sheets to update.";
+            return false;
+        }
+
+        request = new SheetNumberRequest
+        {
+            SourceParameter = source!,
+            DestinationParameter = destination!,
+            PrefixTargetParameter = source!,
+            PrefixParameters = [discipline!, subDiscipline!],
+            SkipIfAlreadyPrefixed = true,
+            ValueMapParameter = discipline,
+            ValueMap = valueMap
+        };
+        error = "";
+        return true;
+    }
+
+    private static string? Find(IReadOnlyList<string> names, Func<string, bool> predicate)
+    {
+        return names.FirstOrDefault(predicate);
+    }
+
+    private static bool IsSubDiscipline(string name)
+    {
+        return name.Contains("Sub-Discipline", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Sub Discipline", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Subdiscipline", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDisciplineOriginator(string name)
+    {
+        return name.Contains("Discipline", StringComparison.OrdinalIgnoreCase)
+               && (name.Contains("Originator", StringComparison.OrdinalIgnoreCase)
+                   || name.Contains("Orginator", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string FormatSummary(SheetNumberRequest request, SheetNumberApplyResult result)
@@ -60,7 +131,9 @@ public class UpdateSheetNumberCommand : IExternalCommand
         var lines = new List<string>();
         if (result.Updated == 0 && result.Mapped == 0)
         {
-            lines.Add("No sheets were changed.");
+            lines.Add(result.SkippedPrefixed > 0
+                ? "Already updated. Nothing was changed."
+                : "No sheets were changed.");
         }
         else
         {
@@ -87,8 +160,8 @@ public class UpdateSheetNumberCommand : IExternalCommand
         if (result.SkippedPrefixed > 0)
         {
             lines.Add(result.SkippedPrefixed == 1
-                ? "Skipped 1 sheet whose destination already had this value."
-                : $"Skipped {result.SkippedPrefixed} sheets whose destination already had this value.");
+                ? "Skipped 1 sheet that already has the condensed prefix, sub-discipline, and SheetNumber2."
+                : $"Skipped {result.SkippedPrefixed} sheets that already have the condensed prefix, sub-discipline, and SheetNumber2.");
         }
 
         if (result.SkippedEmpty > 0)

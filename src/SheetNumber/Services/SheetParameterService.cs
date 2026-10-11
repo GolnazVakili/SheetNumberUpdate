@@ -33,8 +33,33 @@ public static class SheetParameterService
         int skippedEmpty = 0;
         var failures = new List<string>();
         var plans = new List<SheetPlan>();
+        foreach (ViewSheet sheet in sheets)
+            plans.Add(PlanSheet(doc, sheet, request));
 
-        using var transaction = new Transaction(doc, "Update sheet numbers");
+        var alreadySet = plans
+            .Where(plan => plan.Status == UpdateStatus.SkippedPrefixed)
+            .Select(plan => plan.Sheet.Id.Value)
+            .ToHashSet();
+        bool hasUpdates = plans.Any(plan => plan.Status == UpdateStatus.Updated);
+        bool hasMap = sheets.Any(sheet => !alreadySet.Contains(sheet.Id.Value) && NeedsMappedWrite(doc, sheet, request));
+        if (!hasUpdates && !hasMap)
+        {
+            return new SheetNumberApplyResult
+            {
+                SheetTotal = sheets.Count,
+                Updated = 0,
+                Mapped = 0,
+                SkippedPrefixed = plans.Count(plan => plan.Status == UpdateStatus.SkippedPrefixed),
+                SkippedEmpty = plans.Count(plan => plan.Status == UpdateStatus.SkippedEmpty),
+                Failures = plans
+                    .Where(plan => plan.Status == UpdateStatus.Failed && !string.IsNullOrEmpty(plan.Failure))
+                    .Select(plan => $"{plan.Label}: {plan.Failure}")
+                    .ToList(),
+                ChangesCommitted = false
+            };
+        }
+
+        using var transaction = new Transaction(doc, "Sheet Parameter Update");
         transaction.Start();
         FailureHandlingOptions options = transaction.GetFailureHandlingOptions();
         options.SetFailuresPreprocessor(new QuietWarnings());
@@ -51,9 +76,6 @@ public static class SheetParameterService
                 // Sheets that cannot be checked out are reported individually.
             }
         }
-
-        foreach (ViewSheet sheet in sheets)
-            plans.Add(PlanSheet(doc, sheet, request));
 
         foreach (SheetPlan plan in plans.Where(plan => plan.SetSheetNumber && plan.Status == UpdateStatus.Updated))
         {
@@ -106,7 +128,7 @@ public static class SheetParameterService
             }
         }
 
-        int mapped = ApplyValueMap(doc, sheets, request, failures);
+        int mapped = ApplyValueMap(doc, sheets, request, failures, alreadySet);
 
         if (updated > 0 || mapped > 0)
             doc.Regenerate();
@@ -134,7 +156,23 @@ public static class SheetParameterService
         };
     }
 
-    private static int ApplyValueMap(Document doc, List<ViewSheet> sheets, SheetNumberRequest request, List<string> failures)
+    private static bool NeedsMappedWrite(Document doc, ViewSheet sheet, SheetNumberRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ValueMapParameter) || request.ValueMap is not { Count: > 0 } valueMap)
+            return false;
+
+        List<ParamHit> hits = FindHits(doc, sheet, request.ValueMapParameter);
+        string current = Prefer(hits, writable: false)?.Value ?? "";
+        if (current.Length == 0 || !valueMap.TryGetValue(current, out string? replacement))
+            return false;
+
+        if (string.Equals(current, replacement, StringComparison.Ordinal))
+            return false;
+
+        return WritableParameters(hits).Count > 0;
+    }
+
+    private static int ApplyValueMap(Document doc, List<ViewSheet> sheets, SheetNumberRequest request, List<string> failures, HashSet<long> alreadySet)
     {
         if (string.IsNullOrWhiteSpace(request.ValueMapParameter) || request.ValueMap is not { Count: > 0 } valueMap)
             return 0;
@@ -142,6 +180,9 @@ public static class SheetParameterService
         int mapped = 0;
         foreach (ViewSheet sheet in sheets)
         {
+            if (alreadySet.Contains(sheet.Id.Value))
+                continue;
+
             List<ParamHit> hits = FindHits(doc, sheet, request.ValueMapParameter);
             string current = Prefer(hits, writable: false)?.Value ?? "";
             if (current.Length == 0 || !valueMap.TryGetValue(current, out string? replacement))
@@ -280,6 +321,14 @@ public static class SheetParameterService
             prefixParts.Add(ValueMapFile.MappedValue(request.ValueMap, parameterName, request.ValueMapParameter, raw));
         }
 
+        string prefix = string.Concat(prefixParts);
+        string savedNumber = Prefer(destinationHits, writable: false)?.Value ?? "";
+        if (request.SkipIfAlreadyPrefixed && AlreadyUpdated(source.Value, savedNumber, prefix))
+        {
+            plan.Status = UpdateStatus.SkippedPrefixed;
+            return plan;
+        }
+
         string sourceValue = source.Value;
         ParamHit? prefixTarget = targetIsDestination
             ? Prefer(destinationHits, writable: false)
@@ -291,7 +340,7 @@ public static class SheetParameterService
             return plan;
         }
 
-        string updated = string.Concat(prefixParts) + baseValue;
+        string updated = prefix + baseValue;
         string existingTarget = targetIsDestination ? destinationHits.First().Value : prefixTarget?.Value ?? "";
         if (request.SkipIfAlreadyPrefixed && string.Equals(existingTarget, updated, StringComparison.Ordinal))
         {
@@ -647,6 +696,13 @@ public static class SheetParameterService
         {
             return "";
         }
+    }
+
+    private static bool AlreadyUpdated(string sheetNumber, string sheetNumber2, string prefix)
+    {
+        return prefix.Length > 0
+               && sheetNumber2.Length > 0
+               && string.Equals(sheetNumber, prefix + sheetNumber2, StringComparison.Ordinal);
     }
 
     private static bool NamesEqual(string left, string right)

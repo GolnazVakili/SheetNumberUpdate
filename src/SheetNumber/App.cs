@@ -25,13 +25,12 @@ public class App : IExternalApplication
         RibbonPanel panel = GetOrCreatePanel(app, tabName, "Sheets");
 
         var buttonData = new PushButtonData(
-            "SheetNumber.Update",
-            "Sheet\nNumber",
+            "SheetParameterUpdate.Update",
+            "Sheet Parameter\nUpdate",
             AssemblyPath,
             "SheetNumber.Commands.UpdateSheetNumberCommand")
         {
-            ToolTip = "Read a sheet parameter, add two parameters to the front, and write the result to a destination parameter.",
-            LongDescription = "Reads the main parameter, joins two chosen parameters in front of that value, and writes the result to the destination parameter.",
+            ToolTip = "Refactored the Sheet Number and integrate condensed parameter.",
             AvailabilityClassName = "SheetNumber.Commands.ProjectDocumentAvailability"
         };
 

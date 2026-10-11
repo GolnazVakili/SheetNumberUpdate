@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 
 namespace SheetNumber.Services;
 
@@ -6,25 +7,22 @@ public static class ValueMapFile
 {
     public static Dictionary<string, string> Read(string path)
     {
+        Dictionary<string, string>? parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path));
+        if (parsed == null || parsed.Count == 0)
+            throw new InvalidDataException("The mapping file has no values.");
+
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string rawLine in File.ReadAllLines(path))
+        foreach (KeyValuePair<string, string> pair in parsed)
         {
-            string line = rawLine.Trim();
-            if (line.Length == 0)
-                continue;
-
-            char separator = line.Contains(';') ? ';' : ',';
-            string[] parts = line.Split(separator);
-            if (parts.Length < 2)
-                continue;
-
-            string current = parts[0].Trim().Trim('"');
-            string mapped = parts[1].Trim().Trim('"');
+            string current = pair.Key.Trim();
             if (current.Length == 0)
                 continue;
 
-            map[current] = mapped;
+            map[current] = pair.Value?.Trim() ?? "";
         }
+
+        if (map.Count == 0)
+            throw new InvalidDataException("The mapping file has no values.");
 
         return map;
     }

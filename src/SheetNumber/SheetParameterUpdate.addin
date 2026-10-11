@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RevitAddIns>
   <AddIn Type="Application">
-    <Name>Sheet Number</Name>
-    <Assembly>SheetNumber\SheetNumber.dll</Assembly>
+    <Name>Sheet Parameter Update</Name>
+    <Assembly>SheetParameterUpdate\SheetParameterUpdate.dll</Assembly>
     <FullClassName>SheetNumber.App</FullClassName>
-    <ClientId>c4e8a1b2-7d63-4f09-9a55-2b6e8d0c1f73</ClientId>
+    <ClientId>8f3c2a91-6b14-4e77-a2d8-1c9e5f04b6a2</ClientId>
     <VendorId>EGIS</VendorId>
     <VendorDescription>EGIS Group</VendorDescription>
   </AddIn>
