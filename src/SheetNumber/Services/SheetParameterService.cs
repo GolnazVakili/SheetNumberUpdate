@@ -20,7 +20,8 @@ public static class SheetParameterService
             ParameterNames = names.OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase).ToList(),
             SheetCount = sheets.Count,
             PreviewSheetLabel = previewSheet == null ? null : SheetLabel(previewSheet),
-            PreviewValues = previewValues
+            PreviewValues = previewValues,
+            ValuesByParameter = CollectValuesByParameter(sheets, names)
         };
     }
 
@@ -105,11 +106,13 @@ public static class SheetParameterService
             }
         }
 
-        if (updated > 0)
+        int mapped = ApplyValueMap(doc, sheets, request, failures);
+
+        if (updated > 0 || mapped > 0)
             doc.Regenerate();
 
         bool committed = false;
-        if (updated > 0)
+        if (updated > 0 || mapped > 0)
         {
             transaction.Commit();
             committed = true;
@@ -123,11 +126,103 @@ public static class SheetParameterService
         {
             SheetTotal = sheets.Count,
             Updated = updated,
+            Mapped = mapped,
             SkippedPrefixed = skippedPrefixed,
             SkippedEmpty = skippedEmpty,
             Failures = failures,
             ChangesCommitted = committed
         };
+    }
+
+    private static int ApplyValueMap(Document doc, List<ViewSheet> sheets, SheetNumberRequest request, List<string> failures)
+    {
+        if (string.IsNullOrWhiteSpace(request.ValueMapParameter) || request.ValueMap is not { Count: > 0 } valueMap)
+            return 0;
+
+        int mapped = 0;
+        foreach (ViewSheet sheet in sheets)
+        {
+            List<ParamHit> hits = FindHits(doc, sheet, request.ValueMapParameter);
+            string current = Prefer(hits, writable: false)?.Value ?? "";
+            if (current.Length == 0 || !valueMap.TryGetValue(current, out string? replacement))
+                continue;
+
+            if (string.Equals(current, replacement, StringComparison.Ordinal))
+                continue;
+
+            List<Parameter> parameters = WritableParameters(hits);
+            if (parameters.Count == 0)
+            {
+                failures.Add($"{SheetLabel(sheet)}: {request.ValueMapParameter} is read-only.");
+                continue;
+            }
+
+            bool wrote = false;
+            foreach (Parameter parameter in parameters)
+            {
+                if (IsBuiltInSheetNumber(parameter))
+                {
+                    try
+                    {
+                        sheet.SheetNumber = replacement;
+                        wrote = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add($"{SheetLabel(sheet)}: {ex.Message}");
+                    }
+
+                    continue;
+                }
+
+                if (TrySet(parameter, replacement, out string? error))
+                    wrote = true;
+                else
+                    failures.Add($"{SheetLabel(sheet)}: Could not write {request.ValueMapParameter}. {error}");
+            }
+
+            if (wrote)
+                mapped++;
+        }
+
+        return mapped;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> CollectValuesByParameter(List<ViewSheet> sheets, IReadOnlySet<string> names)
+    {
+        var values = new Dictionary<string, SortedSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (ViewSheet sheet in sheets)
+        {
+            foreach (Element host in Hosts(sheet))
+            {
+                foreach (Parameter parameter in host.Parameters)
+                {
+                    if (!IsListed(parameter))
+                        continue;
+
+                    string name = parameter.Definition.Name;
+                    if (!names.Contains(name))
+                        continue;
+
+                    string value = ReadParameter(parameter);
+                    if (value.Length == 0)
+                        continue;
+
+                    if (!values.TryGetValue(name, out SortedSet<string>? set))
+                    {
+                        set = new SortedSet<string>(StringComparer.CurrentCultureIgnoreCase);
+                        values[name] = set;
+                    }
+
+                    set.Add(value);
+                }
+            }
+        }
+
+        return values.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<string>)pair.Value.ToList(),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static SheetPlan PlanSheet(Document doc, ViewSheet sheet, SheetNumberRequest request)
@@ -181,7 +276,8 @@ public static class SheetParameterService
                 return plan;
             }
 
-            prefixParts.Add(Prefer(hits, writable: false)?.Value ?? "");
+            string raw = Prefer(hits, writable: false)?.Value ?? "";
+            prefixParts.Add(ValueMapFile.MappedValue(request.ValueMap, parameterName, request.ValueMapParameter, raw));
         }
 
         string sourceValue = source.Value;

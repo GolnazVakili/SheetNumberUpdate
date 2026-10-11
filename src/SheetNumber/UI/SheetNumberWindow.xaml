@@ -17,11 +17,12 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" BorderBrush="#D0D7E2" BorderThickness="1" CornerRadius="4" Padding="14" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock FontWeight="SemiBold" FontSize="14" Margin="0,0,0,12" Text="Map Parameters" />
+                <TextBlock FontWeight="SemiBold" FontSize="14" Margin="0,0,0,12" Text="Map Parameter I" />
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -53,11 +54,31 @@
             </StackPanel>
         </Border>
 
-        <Border x:Name="PreviewBorder" Grid.Row="2" Background="#F4F7FB" BorderBrush="#D0D7E2" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,14" Visibility="Collapsed">
+        <Border Grid.Row="2" BorderBrush="#D0D7E2" BorderThickness="1" CornerRadius="4" Padding="14" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock FontWeight="SemiBold" FontSize="14" Margin="0,0,0,12" Text="Map Parameter II" />
+                <TextBlock Margin="0,0,0,4" Text="Parameter" />
+                <ComboBox x:Name="ValueMapParameterCombo" Height="28" MaxDropDownHeight="360" Margin="0,0,0,8" />
+                <DockPanel Margin="0,0,0,8" LastChildFill="True">
+                    <Button Content="Load mapping file" Padding="12,4" DockPanel.Dock="Left" Click="LoadMappingFile_Click" />
+                    <TextBlock x:Name="MappingFileText" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="#555555" TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+                <ListView x:Name="ValueMapList" Height="150" BorderBrush="#D0D7E2">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Current value" DisplayMemberBinding="{Binding Current}" Width="310" />
+                            <GridViewColumn Header="Mapped value" DisplayMemberBinding="{Binding Mapped}" Width="310" />
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="PreviewBorder" Grid.Row="3" Background="#F4F7FB" BorderBrush="#D0D7E2" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,14" Visibility="Collapsed">
             <TextBlock x:Name="PreviewText" TextWrapping="Wrap" />
         </Border>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="PreviewButton" Content="Preview" Width="96" Height="30" Margin="0,0,8,0" Click="Preview_Click" />
             <Button x:Name="ApplyButton" Content="Apply" Width="96" Height="30" Margin="0,0,8,0" IsDefault="True" Click="Apply_Click" />
             <Button Content="Cancel" Width="96" Height="30" IsCancel="True" />

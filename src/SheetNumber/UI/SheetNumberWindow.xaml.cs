@@ -1,6 +1,9 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
 using SheetNumber.Models;
+using SheetNumber.Services;
 
 namespace SheetNumber.UI;
 
@@ -11,6 +14,7 @@ public partial class SheetNumberWindow : Window
 
     private readonly SheetNumberCatalog _catalog;
     private readonly List<PrefixRow> _prefixRows = [];
+    private Dictionary<string, string>? _valueMap;
 
     public SheetNumberRequest? Request { get; private set; }
 
@@ -22,10 +26,12 @@ public partial class SheetNumberWindow : Window
         SourceParameterCombo.ItemsSource = catalog.ParameterNames;
         DestinationParameterCombo.ItemsSource = catalog.ParameterNames;
         PrefixTargetCombo.ItemsSource = catalog.ParameterNames;
+        ValueMapParameterCombo.ItemsSource = catalog.ParameterNames;
 
         Select(SourceParameterCombo, name => name.Equals("Sheet Number", StringComparison.OrdinalIgnoreCase));
         Select(DestinationParameterCombo, name => name.Equals("SheetNumber2", StringComparison.OrdinalIgnoreCase));
         Select(PrefixTargetCombo, name => name.Equals("Sheet Number", StringComparison.OrdinalIgnoreCase));
+        Select(ValueMapParameterCombo, name => IsDisciplineOriginator(name) && !IsSubDiscipline(name));
         AddPrefixRow(name => IsDisciplineOriginator(name) && !IsSubDiscipline(name));
         AddPrefixRow(IsSubDiscipline);
 
@@ -34,10 +40,88 @@ public partial class SheetNumberWindow : Window
         SourceParameterCombo.SelectionChanged += (_, _) => RefreshPreviewIfOpen();
         DestinationParameterCombo.SelectionChanged += (_, _) => RefreshPreviewIfOpen();
         PrefixTargetCombo.SelectionChanged += (_, _) => RefreshPreviewIfOpen();
+        ValueMapParameterCombo.SelectionChanged += (_, _) =>
+        {
+            RefreshValueMapList();
+            RefreshPreviewIfOpen();
+        };
         SkipPrefixedCheckBox.Checked += (_, _) => RefreshPreviewIfOpen();
         SkipPrefixedCheckBox.Unchecked += (_, _) => RefreshPreviewIfOpen();
 
         ApplyButton.IsEnabled = catalog.SheetCount > 0;
+        RefreshValueMapList();
+    }
+
+    private void LoadMappingFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = "Condensed_Parameter.csv"
+        };
+
+        string? folder = FindTitleblockFolder();
+        if (folder != null)
+            dialog.InitialDirectory = folder;
+
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            _valueMap = ValueMapFile.Read(dialog.FileName);
+            MappingFileText.Text = Path.GetFileName(dialog.FileName);
+            RefreshValueMapList();
+            RefreshPreviewIfOpen();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Sheet Number", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void RefreshValueMapList()
+    {
+        string? parameterName = ValueMapParameterCombo.SelectedItem as string;
+        if (string.IsNullOrEmpty(parameterName)
+            || !_catalog.ValuesByParameter.TryGetValue(parameterName, out IReadOnlyList<string>? values))
+        {
+            ValueMapList.ItemsSource = null;
+            return;
+        }
+
+        ValueMapList.ItemsSource = values.Select(value => new ValueMapRow
+        {
+            Current = value,
+            Mapped = _valueMap != null && _valueMap.TryGetValue(value, out string? mapped)
+                ? mapped
+                : ""
+        }).ToList();
+    }
+
+    private static string? FindTitleblockFolder()
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Titileblock"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Titleblock")
+        };
+
+        string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        try
+        {
+            foreach (string folder in Directory.GetDirectories(profile, "OneDrive*"))
+            {
+                candidates.Add(Path.Combine(folder, "Desktop", "Titileblock"));
+                candidates.Add(Path.Combine(folder, "Desktop", "Titleblock"));
+            }
+        }
+        catch
+        {
+            // The profile folder may not be readable.
+        }
+
+        return candidates.FirstOrDefault(Directory.Exists);
     }
 
     private void AddPrefix_Click(object sender, RoutedEventArgs e)
@@ -133,7 +217,9 @@ public partial class SheetNumberWindow : Window
             DestinationParameter = destination!,
             PrefixTargetParameter = prefixTarget!,
             PrefixParameters = prefixes!,
-            SkipIfAlreadyPrefixed = SkipPrefixedCheckBox.IsChecked == true
+            SkipIfAlreadyPrefixed = SkipPrefixedCheckBox.IsChecked == true,
+            ValueMapParameter = _valueMap == null ? null : ValueMapParameterCombo.SelectedItem as string,
+            ValueMap = _valueMap
         };
 
         DialogResult = true;
@@ -209,7 +295,9 @@ public partial class SheetNumberWindow : Window
             return;
         }
 
-        string prefix = string.Concat(prefixes.Select(name => RawValue(_catalog, name)));
+        string? mappedParameter = _valueMap == null ? null : ValueMapParameterCombo.SelectedItem as string;
+        string prefix = string.Concat(prefixes.Select(name =>
+            ValueMapFile.MappedValue(_valueMap, name, mappedParameter, RawValue(_catalog, name))));
         string updated = prefix + (targetIsDestination ? sourceValue : targetValue);
         if (targetIsDestination)
         {
@@ -264,6 +352,12 @@ public partial class SheetNumberWindow : Window
         return name.Contains("Discipline", StringComparison.OrdinalIgnoreCase)
                && (name.Contains("Originator", StringComparison.OrdinalIgnoreCase)
                    || name.Contains("Orginator", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class ValueMapRow
+    {
+        public required string Current { get; init; }
+        public required string Mapped { get; init; }
     }
 
     private sealed class PrefixRow(ComboBox combo, Button removeButton)

@@ -58,7 +58,7 @@ public class UpdateSheetNumberCommand : IExternalCommand
     private static string FormatSummary(SheetNumberRequest request, SheetNumberApplyResult result)
     {
         var lines = new List<string>();
-        if (result.Updated == 0)
+        if (result.Updated == 0 && result.Mapped == 0)
         {
             lines.Add("No sheets were changed.");
         }
@@ -75,6 +75,13 @@ public class UpdateSheetNumberCommand : IExternalCommand
                 lines.Add($"{request.DestinationParameter} now stores {request.SourceParameter}.");
                 lines.Add($"{request.PrefixTargetParameter} now starts with {prefixes}.");
             }
+        }
+
+        if (result.Mapped > 0 && !string.IsNullOrWhiteSpace(request.ValueMapParameter))
+        {
+            lines.Add(result.Mapped == 1
+                ? $"Mapped {request.ValueMapParameter} on 1 sheet."
+                : $"Mapped {request.ValueMapParameter} on {result.Mapped} sheets.");
         }
 
         if (result.SkippedPrefixed > 0)

@@ -9,6 +9,8 @@ public sealed class SheetNumberCatalog
     public string? PreviewSheetLabel { get; init; }
 
     public required IReadOnlyDictionary<string, string> PreviewValues { get; init; }
+
+    public required IReadOnlyDictionary<string, IReadOnlyList<string>> ValuesByParameter { get; init; }
 }
 
 public sealed class SheetNumberRequest
@@ -22,6 +24,10 @@ public sealed class SheetNumberRequest
     public required IReadOnlyList<string> PrefixParameters { get; init; }
 
     public bool SkipIfAlreadyPrefixed { get; init; }
+
+    public string? ValueMapParameter { get; init; }
+
+    public IReadOnlyDictionary<string, string>? ValueMap { get; init; }
 }
 
 public sealed class SheetNumberApplyResult
@@ -29,6 +35,8 @@ public sealed class SheetNumberApplyResult
     public required int SheetTotal { get; init; }
 
     public required int Updated { get; init; }
+
+    public required int Mapped { get; init; }
 
     public required int SkippedPrefixed { get; init; }
 
